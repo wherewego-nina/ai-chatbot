@@ -35,6 +35,9 @@ import { saveChat } from '@/app/actions'
 import { SpinnerMessage, UserMessage } from '@/components/stocks/message'
 import { Chat } from '@/lib/types'
 import { auth } from '@/auth'
+import { CareersSkeleton } from '@/components/careers/careers-skeleton'
+import { Careers } from '@/components/careers/careers'
+import { Trainings } from '@/components/careers/trainings'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || ''
@@ -149,20 +152,16 @@ async function submitUserMessage(content: string) {
       {
         role: 'system',
         content: `\
-You are a stock trading conversation bot and you can help users buy stocks, step by step.
-You and the user can discuss stock prices and the user can adjust the amount of stocks they want to buy, or place an order, in the UI.
 
-Messages inside [] means that it's a UI element or a user event. For example:
-- "[Price of AAPL = 100]" means that an interface of the stock price of AAPL is shown to the user.
-- "[User has changed the amount of AAPL to 10]" means that the user has changed the amount of AAPL to 10 in the UI.
+        You are a career exploration conversation bot designed to help users explore careers, trainings, and jobs. You can assist users in discovering options that align with their interests and skills.
 
-If the user requests purchasing a stock, call \`show_stock_purchase_ui\` to show the purchase UI.
-If the user just wants the price, call \`show_stock_price\` to show the price.
-If you want to show trending stocks, call \`list_stocks\`.
-If you want to show events, call \`get_events\`.
-If the user wants to sell stock, or complete another impossible task, respond that you are a demo and cannot do that.
-
-Besides that, you can also chat with users and do some calculations if needed.`
+        Messages inside [] signify a UI element or a user event. For example:
+        
+        "[Recommended Career: Data Analyst]" indicates that an interface showing a recommended career as a Data Analyst is displayed to the user.
+        "[User has selected Training: Software Development]" means that the user has selected a training in Software Development from the UI.
+        If the user requests to view recommended careers, call show_recommended_careers to display the relevant UI.
+        If the user wants to see recommended trainings, use show_recommended_trainings to provide the information.
+        In case the user wants to engage in an action that the system cannot perform, inform them that this is a demo and certain actions are not available.`
       },
       ...aiState.get().messages.map((message: any) => ({
         role: message.role,
@@ -196,21 +195,24 @@ Besides that, you can also chat with users and do some calculations if needed.`
       return textNode
     },
     functions: {
-      listStocks: {
-        description: 'List three imaginary stocks that are trending.',
+      showRecommendedCareers: {
+        description: 'List three careers that the user might be interested in',
         parameters: z.object({
-          stocks: z.array(
+          careers: z.array(
             z.object({
-              symbol: z.string().describe('The symbol of the stock'),
-              price: z.number().describe('The price of the stock'),
-              delta: z.number().describe('The change in price of the stock')
+              careerName: z.string().describe('The mame of the career'),
+              onetCode: z.string().describe('The onet code for the career'),
+              medianAnnualSalary: z
+                .number()
+                .describe('The median annual salary for the career'),
+              description: z.string().describe('A description for the career')
             })
           )
         }),
-        render: async function* ({ stocks }) {
+        render: async function* ({ careers }) {
           yield (
             <BotCard>
-              <StocksSkeleton />
+              <CareersSkeleton />
             </BotCard>
           )
 
@@ -224,141 +226,35 @@ Besides that, you can also chat with users and do some calculations if needed.`
                 id: nanoid(),
                 role: 'function',
                 name: 'listStocks',
-                content: JSON.stringify(stocks)
+                content: JSON.stringify(careers)
               }
             ]
           })
 
           return (
             <BotCard>
-              <Stocks props={stocks} />
+              <Careers props={careers} />
             </BotCard>
           )
         }
       },
-      showStockPrice: {
+      showRecommendedTrainings: {
         description:
-          'Get the current stock price of a given stock or currency. Use this to show the price to the user.',
+          'List three trainings that the user might be interested in',
         parameters: z.object({
-          symbol: z
-            .string()
-            .describe(
-              'The name or symbol of the stock or currency. e.g. DOGE/AAPL/USD.'
-            ),
-          price: z.number().describe('The price of the stock.'),
-          delta: z.number().describe('The change in price of the stock')
-        }),
-        render: async function* ({ symbol, price, delta }) {
-          yield (
-            <BotCard>
-              <StockSkeleton />
-            </BotCard>
-          )
-
-          await sleep(1000)
-
-          aiState.done({
-            ...aiState.get(),
-            messages: [
-              ...aiState.get().messages,
-              {
-                id: nanoid(),
-                role: 'function',
-                name: 'showStockPrice',
-                content: JSON.stringify({ symbol, price, delta })
-              }
-            ]
-          })
-
-          return (
-            <BotCard>
-              <Stock props={{ symbol, price, delta }} />
-            </BotCard>
-          )
-        }
-      },
-      showStockPurchase: {
-        description:
-          'Show price and the UI to purchase a stock or currency. Use this if the user wants to purchase a stock or currency.',
-        parameters: z.object({
-          symbol: z
-            .string()
-            .describe(
-              'The name or symbol of the stock or currency. e.g. DOGE/AAPL/USD.'
-            ),
-          price: z.number().describe('The price of the stock.'),
-          numberOfShares: z
-            .number()
-            .describe(
-              'The **number of shares** for a stock or currency to purchase. Can be optional if the user did not specify it.'
-            )
-        }),
-        render: async function* ({ symbol, price, numberOfShares = 100 }) {
-          if (numberOfShares <= 0 || numberOfShares > 1000) {
-            aiState.done({
-              ...aiState.get(),
-              messages: [
-                ...aiState.get().messages,
-                {
-                  id: nanoid(),
-                  role: 'system',
-                  content: `[User has selected an invalid amount]`
-                }
-              ]
-            })
-
-            return <BotMessage content={'Invalid amount'} />
-          }
-
-          aiState.done({
-            ...aiState.get(),
-            messages: [
-              ...aiState.get().messages,
-              {
-                id: nanoid(),
-                role: 'function',
-                name: 'showStockPurchase',
-                content: JSON.stringify({
-                  symbol,
-                  price,
-                  numberOfShares
-                })
-              }
-            ]
-          })
-
-          return (
-            <BotCard>
-              <Purchase
-                props={{
-                  numberOfShares,
-                  symbol,
-                  price: +price,
-                  status: 'requires_action'
-                }}
-              />
-            </BotCard>
-          )
-        }
-      },
-      getEvents: {
-        description:
-          'List funny imaginary events between user highlighted dates that describe stock activity.',
-        parameters: z.object({
-          events: z.array(
+          trainings: z.array(
             z.object({
-              date: z
-                .string()
-                .describe('The date of the event, in ISO-8601 format'),
-              headline: z.string().describe('The headline of the event'),
-              description: z.string().describe('The description of the event')
+              name: z.string().describe('The name of the training'),
+              institution: z.string().describe('The name of the institution'),
+              cost: z.number().describe('The cost of the program'),
+              duration: z.string().describe('The length of the program')
             })
           )
         }),
-        render: async function* ({ events }) {
+        render: async function* ({ trainings }) {
           yield (
             <BotCard>
-              <EventsSkeleton />
+              <CareersSkeleton />
             </BotCard>
           )
 
@@ -371,15 +267,15 @@ Besides that, you can also chat with users and do some calculations if needed.`
               {
                 id: nanoid(),
                 role: 'function',
-                name: 'getEvents',
-                content: JSON.stringify(events)
+                name: 'listStocks',
+                content: JSON.stringify(trainings)
               }
             ]
           })
 
           return (
             <BotCard>
-              <Events props={events} />
+              <Trainings props={trainings} />
             </BotCard>
           )
         }
@@ -469,21 +365,13 @@ export const getUIStateFromAIState = (aiState: Chat) => {
       id: `${aiState.chatId}-${index}`,
       display:
         message.role === 'function' ? (
-          message.name === 'listStocks' ? (
+          message.name === 'showRecommendedCareers' ? (
             <BotCard>
-              <Stocks props={JSON.parse(message.content)} />
+              <Careers props={JSON.parse(message.content)} />
             </BotCard>
-          ) : message.name === 'showStockPrice' ? (
+          ) : message.name === 'showRecommendedTrainings' ? (
             <BotCard>
               <Stock props={JSON.parse(message.content)} />
-            </BotCard>
-          ) : message.name === 'showStockPurchase' ? (
-            <BotCard>
-              <Purchase props={JSON.parse(message.content)} />
-            </BotCard>
-          ) : message.name === 'getEvents' ? (
-            <BotCard>
-              <Events props={JSON.parse(message.content)} />
             </BotCard>
           ) : null
         ) : message.role === 'user' ? (
